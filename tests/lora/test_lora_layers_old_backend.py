@@ -41,7 +41,7 @@ from diffusers import (
     UNet2DConditionModel,
     UNet3DConditionModel,
 )
-from diffusers.loaders import AttnProcsLayers, LoraLoaderMixin, PatchedLoraProjection, text_encoder_attn_modules
+from diffusers.loaders import AttnProcsLayers, LoraLoaderMixin
 from diffusers.models.attention_processor import (
     Attention,
     AttnProcessor,
@@ -51,6 +51,7 @@ from diffusers.models.attention_processor import (
     LoRAXFormersAttnProcessor,
     XFormersAttnProcessor,
 )
+from diffusers.models.lora import PatchedLoraProjection, text_encoder_attn_modules
 from diffusers.utils.import_utils import is_xformers_available
 from diffusers.utils.testing_utils import (
     deprecate_after_peft_backend,
@@ -245,6 +246,7 @@ class LoraLoaderMixinTests(unittest.TestCase):
             "tokenizer": tokenizer,
             "safety_checker": None,
             "feature_extractor": None,
+            "image_encoder": None,
         }
         lora_components = {
             "unet_lora_layers": unet_lora_layers,
@@ -293,6 +295,22 @@ class LoraLoaderMixinTests(unittest.TestCase):
         )
         self.assertTrue(os.path.isfile(os.path.join(tmpdirname, "pytorch_lora_weights.safetensors")))
 
+    @unittest.skipIf(not torch.cuda.is_available() or not is_xformers_available(), reason="xformers requires cuda")
+    def test_stable_diffusion_xformers_attn_processors(self):
+        # disable_full_determinism()
+        device = "cuda"  # ensure determinism for the device-dependent torch.Generator
+        components, _ = self.get_dummy_components()
+        sd_pipe = StableDiffusionPipeline(**components)
+        sd_pipe = sd_pipe.to(device)
+        sd_pipe.set_progress_bar_config(disable=None)
+
+        _, _, inputs = self.get_dummy_inputs()
+
+        # run xformers attention
+        sd_pipe.enable_xformers_memory_efficient_attention()
+        image = sd_pipe(**inputs).images
+        assert image.shape == (1, 64, 64, 3)
+
     @unittest.skipIf(not torch.cuda.is_available(), reason="xformers requires cuda")
     def test_stable_diffusion_attn_processors(self):
         # disable_full_determinism()
@@ -305,11 +323,6 @@ class LoraLoaderMixinTests(unittest.TestCase):
         _, _, inputs = self.get_dummy_inputs()
 
         # run normal sd pipe
-        image = sd_pipe(**inputs).images
-        assert image.shape == (1, 64, 64, 3)
-
-        # run xformers attention
-        sd_pipe.enable_xformers_memory_efficient_attention()
         image = sd_pipe(**inputs).images
         assert image.shape == (1, 64, 64, 3)
 
@@ -662,6 +675,7 @@ class LoraLoaderMixinTests(unittest.TestCase):
         self.assertFalse(torch.allclose(torch.from_numpy(orig_image_slice), torch.from_numpy(lora_image_slice)))
 
 
+@deprecate_after_peft_backend
 class SDXInpaintLoraMixinTests(unittest.TestCase):
     def get_dummy_inputs(self, device, seed=0, img_res=64, output_pil=True):
         # TODO: use tensor inputs instead of PIL, this is here just to leave the old expected_slices untouched
@@ -744,6 +758,7 @@ class SDXInpaintLoraMixinTests(unittest.TestCase):
             "tokenizer": tokenizer,
             "safety_checker": None,
             "feature_extractor": None,
+            "image_encoder": None,
         }
         return components
 
@@ -853,6 +868,8 @@ class SDXLLoraLoaderMixinTests(unittest.TestCase):
             "text_encoder_2": text_encoder_2,
             "tokenizer": tokenizer,
             "tokenizer_2": tokenizer_2,
+            "image_encoder": None,
+            "feature_extractor": None,
         }
         lora_components = {
             "unet_lora_layers": unet_lora_layers,
@@ -1376,6 +1393,7 @@ class SDXLLoraLoaderMixinTests(unittest.TestCase):
         ), "The pipeline was serialized with LoRA parameters fused inside of the respected modules. The loaded pipeline should yield proper outputs, henceforth."
 
 
+@deprecate_after_peft_backend
 class UNet2DConditionLoRAModelTests(unittest.TestCase):
     model_class = UNet2DConditionModel
     main_input_name = "sample"
@@ -1624,6 +1642,7 @@ class UNet2DConditionLoRAModelTests(unittest.TestCase):
         assert max_diff_off_sample < expected_max_diff
 
 
+@deprecate_after_peft_backend
 class UNet3DConditionModelTests(unittest.TestCase):
     model_class = UNet3DConditionModel
     main_input_name = "sample"
@@ -1866,6 +1885,7 @@ class UNet3DConditionModelTests(unittest.TestCase):
 
 
 @slow
+@deprecate_after_peft_backend
 @require_torch_gpu
 class LoraIntegrationTests(unittest.TestCase):
     def test_dreambooth_old_format(self):
