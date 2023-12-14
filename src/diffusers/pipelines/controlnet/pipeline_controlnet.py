@@ -33,6 +33,8 @@ from ..pipeline_utils import DiffusionPipeline
 from ..stable_diffusion.pipeline_output import StableDiffusionPipelineOutput
 from ..stable_diffusion.safety_checker import StableDiffusionSafetyChecker
 from .multicontrolnet import MultiControlNetModel
+import time
+import random
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
@@ -205,6 +207,10 @@ class StableDiffusionControlNetPipeline(
         computing decoding in one step.
         """
         self.vae.disable_tiling()
+
+    # ATTN: defined by @doem97
+    def offload_unet(self):
+        self.final_offload_hook = True
 
     # Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.StableDiffusionPipeline._encode_prompt
     def _encode_prompt(
@@ -655,7 +661,10 @@ class StableDiffusionControlNetPipeline(
         do_classifier_free_guidance=False,
         guess_mode=False,
     ):
+        # print("Starting prepare_image...")
+        # time.sleep(random.uniform(0.1, 1))
         image = self.control_image_processor.preprocess(image, height=height, width=width).to(dtype=torch.float32)
+        # print("Finished preprocess...")
         image_batch_size = image.shape[0]
 
         if image_batch_size == 1:
@@ -671,6 +680,7 @@ class StableDiffusionControlNetPipeline(
         if do_classifier_free_guidance and not guess_mode:
             image = torch.cat([image] * 2)
 
+        # print("Finished prepare_image...")
         return image
 
     # Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.StableDiffusionPipeline.prepare_latents
@@ -802,6 +812,7 @@ class StableDiffusionControlNetPipeline(
                 second element is a list of `bool`s indicating whether the corresponding generated image contains
                 "not-safe-for-work" (nsfw) content.
         """
+        # time.sleep(random.uniform(0.1, 1))
         controlnet = self.controlnet._orig_mod if is_compiled_module(self.controlnet) else self.controlnet
 
         # align format for control guidance
